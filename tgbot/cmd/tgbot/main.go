@@ -9,8 +9,7 @@ import (
 )
 
 const (
-	WebhookURLPrefix = "http://"
-	WebhookURL       = "87.239.111.2:8888"
+	WebhookURL = "https://a11c-95-73-2-182.ngrok-free.app"
 )
 
 func main() {
@@ -27,21 +26,21 @@ func main() {
 		logger.Panic("tgbotapi.NewBotAPI:", err)
 	}
 
-	_, err = bot.SetWebhook(tgbotapi.NewWebhook(WebhookURLPrefix + WebhookURL))
+	_, err = bot.SetWebhook(tgbotapi.NewWebhook(WebhookURL))
 	if err != nil {
 		logger.Panic("bot.SetWebhook:", err)
 	}
 
 	updates := bot.ListenForWebhook("/")
 	go func() {
-		http.ListenAndServe(WebhookURL, nil)
-		logger.Info("Started listening", WebhookURL)
+		logger.Info("Listening :8080")
+		logger.Fatal(http.ListenAndServe(":8080", nil))
 	}()
 
 	logger.Infof(`Bot "%v" started`, bot.Self.UserName)
 
 	for update := range updates {
 		logger.Debug("got update =", update)
+		logger.Debug("Message from ", update.Message.Chat.ID)
 	}
-
 }
