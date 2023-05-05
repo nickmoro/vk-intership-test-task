@@ -1,2 +1,2 @@
 all:
-	go run ./cmd/tgbot/
+	sudo docker compose up
