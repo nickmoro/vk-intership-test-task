@@ -57,5 +57,9 @@ type BotHandler interface {
 	Get(update tgbotapi.Update) (string, error)
 	Del(update tgbotapi.Update) (string, error)
 }
-
 ```
+
+На самом деле main.go не использует Set(), Get() и Del(), однако мне показалось корректным описать эти функции в интерфейсе для
+лучшего понимания контекста.
+
+
