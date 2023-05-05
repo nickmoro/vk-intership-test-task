@@ -40,12 +40,6 @@
 
 Далее я описал необходимые мне структуры, интерфейс хендлера и приступил к его реализации:
 ```golang
-package handler
-
-import (
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
-)
-
 type User struct {
 	UserID string
 	Notes  []Note
