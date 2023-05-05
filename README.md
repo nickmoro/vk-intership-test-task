@@ -19,8 +19,17 @@
 3. Для хранения данных используется mongoDB.
 
 ## Описание решения
-В /cmd/main.go проинициализирован логгер (был выбран zap.SugaredLogger) и сам бот.  
-**Примечание:** Для локального запуска задайте `BotToken`. В целях безопасности он не импортирован в git-репозиторий.
+├── cmd
+│   └── tgbot
+│       ├── main.go: Инициализация логгера (zap.SugaredLogger) и бота, запуск воркеров.
+│       └── secret.go: Файл не импортирован в git, здесь хранится ключ бота.
+└── internal
+    └── handler: Пакет, реализующий обработчик команд пользователя. Для работы необходим NotesRepo.
+        ├── handler.go: Реализация хендлера.
+        └── interface.go: Описание интерфейса хендлера.
+
+**Примечание:** Для локального запуска задайте `BotToken` в main.go. В целях безопасности он не импортирован в git-репозиторий.
+
 
 *Далее идёт вольное описание кода*  
 При реализации хендлера, я решил продумать возможность обрабатывать запросы многопоточно. Заметим, что
@@ -30,6 +39,10 @@
 
 Далее я описал необходимые мне структуры, интерфейс хендлера и приступил к его реализации (воркером является HandleFunc):
 ```golang
+package handler
+
+import tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
+
 type User struct {
 	UserID string
 	Notes  []Note
@@ -42,6 +55,9 @@ type Note struct {
 }
 
 type BotHandler interface {
-	HandleFunc(updates <-chan tgbotapi.Update)
+	WorkerFunc(updates <-chan tgbotapi.Update)
+	Set(update tgbotapi.Update) (string, error)
+	Get(update tgbotapi.Update) (string, error)
+	Del(update tgbotapi.Update) (string, error)
 }
 ```
