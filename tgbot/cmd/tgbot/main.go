@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	WebhookURL      = "https://de42-95-72-10-95.ngrok-free.app"
+	WebhookURL      = "https://70b7-176-59-164-45.ngrok-free.app"
 	NumberOfWorkers = 4
-	MongoURI        = "mongodb://localhost:27017"
+	MongoURI        = "mongodb://mongodb:27017"
 	DatabaseName    = "tgbot"
 	CollectionName  = "users"
 )
@@ -53,8 +53,10 @@ func main() {
 
 	botHandler := handler.NewBotHandler(logger, bot, repo)
 	for i := 0; i < NumberOfWorkers; i++ {
-		logger.Infof(`Wokrer %v started`, i)
-		go botHandler.WorkerFunc(updates)
+		go func(workerNum int) {
+			logger.Infof(`Worker %v started`, workerNum)
+			botHandler.HandleUpdates(updates)
+		}(i)
 	}
 
 	logger.Info("Listening :8080")
