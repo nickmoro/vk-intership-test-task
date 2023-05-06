@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"sync"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -10,8 +11,9 @@ import (
 )
 
 type MongoRepo struct {
-	client     *mongo.Client
-	collection *mongo.Collection
+	Client     *mongo.Client
+	Collection *mongo.Collection
+	mutexMap   sync.Map
 }
 
 func NewMongoRepo(connectionString, dbName, collectionName string) (NotesRepo, error) {
@@ -25,60 +27,66 @@ func NewMongoRepo(connectionString, dbName, collectionName string) (NotesRepo, e
 	}
 
 	return &MongoRepo{
-		client:     client,
-		collection: client.Database(dbName).Collection(collectionName),
+		Client:     client,
+		Collection: client.Database(dbName).Collection(collectionName),
+		mutexMap:   sync.Map{},
 	}, nil
 }
 
-func (r *MongoRepo) Set(userID string, note Note) error {
+func (r *MongoRepo) Set(chatID string, note Note) error {
 	filter := bson.M{
-		"userID": userID,
+		"_id": chatID,
 	}
 
 	update := bson.M{
 		"$push": bson.M{"notes": note},
 	}
 
-	_, err := r.collection.UpdateOne(context.Background(), filter, update)
+	opts := options.Update().SetUpsert(true)
+
+	_, err := r.Collection.UpdateOne(context.Background(), filter, update, opts)
 	if err != nil {
-		return errors.Wrap(err, "r.collection.UpdateOne")
+		return errors.Wrap(err, "r.Collection.UpdateOne")
 	}
+
 	return nil
 }
 
-func (r *MongoRepo) Get(userID, serviceName string) (Note, error) {
+func (r *MongoRepo) Get(chatID, serviceName string) (Note, error) {
 	filter := bson.M{
-		"userID":            userID,
-		"notes.serviceName": serviceName,
+		"_id":               chatID,
+		"notes.servicename": serviceName,
 	}
 
-	var user User
-	err := r.collection.FindOne(context.Background(), filter).Decode(&user)
+	var workspace Workspace
+	err := r.Collection.FindOne(context.Background(), filter).Decode(&workspace)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return Note{}, ErrNotFound
 		}
-		return Note{}, errors.Wrap(err, "r.collection.FindOne")
+		return Note{}, errors.Wrap(err, "r.Collection.FindOne")
 	}
-	return user.Notes[0], nil
+
+	return workspace.Notes[0], nil
 }
 
-func (r *MongoRepo) Del(userID, serviceName string) error {
+func (r *MongoRepo) Del(chatID, serviceName string) error {
 	filter := bson.M{
-		"userID": userID,
+		"_id": chatID,
 	}
 
 	update := bson.M{
 		"$pull": bson.M{
 			"notes": bson.M{
-				"serviceName": serviceName,
+				"servicename": serviceName,
 			},
 		},
 	}
 
-	_, err := r.collection.UpdateOne(context.Background(), filter, update)
+	_, err := r.Collection.UpdateOne(context.Background(), filter, update)
 	if err != nil {
-		return errors.Wrap(err, "r.collection.UpdateOne")
+		return errors.Wrap(err, "r.Collection.UpdateOne")
 	}
+
 	return nil
 }

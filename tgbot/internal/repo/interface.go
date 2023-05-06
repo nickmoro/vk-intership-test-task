@@ -2,8 +2,8 @@ package repo
 
 import "github.com/pkg/errors"
 
-type User struct {
-	UserID string
+type Workspace struct {
+	ChatID string
 	Notes  []Note
 }
 
