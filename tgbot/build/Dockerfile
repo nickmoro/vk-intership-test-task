@@ -1,4 +1,4 @@
-FROM golang:1.20 AS build
+FROM golang:1.20 AS goimage
 
 RUN apt-get update && apt-get install -y git
 
@@ -7,13 +7,12 @@ WORKDIR /app
 COPY . .
 
 WORKDIR /app/cmd/tgbot
-# RUN go mod download
+RUN go mod download
 RUN go build -o /app/build/main
 
 FROM mongo:6.0.5
 
-COPY --from=build /app/build/main /usr/local/bin/main
-COPY --from=build /app/vendor /app/vendor
+COPY --from=goimage /app/build/main /usr/local/bin/main
 
 EXPOSE 8080
 

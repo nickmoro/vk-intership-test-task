@@ -4,6 +4,12 @@ all:
 ls:
 	sudo docker container ls -a
 
+docker_start:
+	sudo systemctl start docker
+
+mongosh:
+	sudo mongosh 172.20.0.2:27017
+
 logs:
 	sudo docker container logs -f tgbot-app-1
 

@@ -15,4 +15,4 @@ services:
   mongodb:
     image: "mongo:6.0.5"
     ports:
-      - "27017:27017"
+      - "27017"
