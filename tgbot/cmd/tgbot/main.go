@@ -43,7 +43,11 @@ func main() {
 		logger.Panic(err)
 	}
 
-	log.Println(bot.RemoveWebhook())
+	_, err = bot.RemoveWebhook()
+	if err != nil {
+		logger.Panic(err)
+	}
+
 	updates, err := bot.GetUpdatesChan(tgbotapi.NewUpdate(0))
 	if err != nil {
 		logger.Panic(err)
