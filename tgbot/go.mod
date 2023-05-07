@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/go-telegram-bot-api/telegram-bot-api v4.6.4+incompatible
 	github.com/pkg/errors v0.9.1
+	github.com/yudai/nmutex v0.0.0-20160929052321-771191fb4242
 	go.mongodb.org/mongo-driver v1.11.6
 	go.uber.org/zap v1.24.0
 )

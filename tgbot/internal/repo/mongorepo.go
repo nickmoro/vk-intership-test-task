@@ -2,18 +2,20 @@ package repo
 
 import (
 	"context"
-	"sync"
+	"fmt"
+	"log"
 
 	"github.com/pkg/errors"
+	"github.com/yudai/nmutex"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type MongoRepo struct {
-	Client     *mongo.Client
-	Collection *mongo.Collection
-	mutexMap   sync.Map
+	client     *mongo.Client
+	collection *mongo.Collection
+	mu         *nmutex.NamedMutex
 }
 
 func NewMongoRepo(connectionString, dbName, collectionName string) (NotesRepo, error) {
@@ -27,28 +29,50 @@ func NewMongoRepo(connectionString, dbName, collectionName string) (NotesRepo, e
 	}
 
 	return &MongoRepo{
-		Client:     client,
-		Collection: client.Database(dbName).Collection(collectionName),
-		mutexMap:   sync.Map{},
+		client:     client,
+		collection: client.Database(dbName).Collection(collectionName),
+		mu:         nmutex.New(),
 	}, nil
 }
 
 func (r *MongoRepo) Set(chatID string, note Note) error {
+	// Firstly delete note with such servicename
 	filter := bson.M{
 		"_id": chatID,
 	}
 
-	update := bson.M{
-		"$push": bson.M{"notes": note},
+	pullUpdate := bson.M{
+		"$pull": bson.M{
+			"notes": bson.M{
+				"servicename": note.ServiceName,
+			},
+		},
 	}
 
-	opts := options.Update().SetUpsert(true)
+	pushUpdate := bson.M{
+		"$push": bson.M{
+			"notes": note,
+		},
+	}
 
-	_, err := r.Collection.UpdateOne(context.Background(), filter, update, opts)
+	pushOpts := options.Update().SetUpsert(true)
+
+	unlocker := r.mu.Lock(chatID)
+	defer unlocker()
+
+	// delete
+	_, err := r.collection.UpdateOne(context.Background(), filter, pullUpdate)
+	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
+		return errors.Wrap(err, "r.collection.UpdateOne")
+	}
+
+	// insert
+	_, err = r.collection.UpdateOne(context.Background(), filter, pushUpdate, pushOpts)
 	if err != nil {
-		return errors.Wrap(err, "r.Collection.UpdateOne")
+		return errors.Wrap(err, "r.collection.UpdateOne")
 	}
 
+	fmt.Println("Setted")
 	return nil
 }
 
@@ -58,16 +82,25 @@ func (r *MongoRepo) Get(chatID, serviceName string) (Note, error) {
 		"notes.servicename": serviceName,
 	}
 
+	unlocker := r.mu.Lock(chatID)
+	defer unlocker()
+
 	var workspace Workspace
-	err := r.Collection.FindOne(context.Background(), filter).Decode(&workspace)
+	err := r.collection.FindOne(context.Background(), filter).Decode(&workspace)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return Note{}, ErrNotFound
 		}
-		return Note{}, errors.Wrap(err, "r.Collection.FindOne")
+		return Note{}, errors.Wrap(err, "r.collection.FindOne")
 	}
 
-	return workspace.Notes[0], nil
+	log.Println("Found workspace =", workspace)
+	for _, note := range workspace.Notes {
+		if note.ServiceName == serviceName {
+			return note, nil
+		}
+	}
+	return Note{}, ErrNotFound
 }
 
 func (r *MongoRepo) Del(chatID, serviceName string) error {
@@ -83,9 +116,12 @@ func (r *MongoRepo) Del(chatID, serviceName string) error {
 		},
 	}
 
-	_, err := r.Collection.UpdateOne(context.Background(), filter, update)
+	unlocker := r.mu.Lock(chatID)
+	defer unlocker()
+
+	_, err := r.collection.UpdateOne(context.Background(), filter, update)
 	if err != nil {
-		return errors.Wrap(err, "r.Collection.UpdateOne")
+		return errors.Wrap(err, "r.collection.UpdateOne")
 	}
 
 	return nil
