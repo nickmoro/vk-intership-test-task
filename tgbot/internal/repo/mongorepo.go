@@ -13,23 +13,17 @@ import (
 )
 
 type MongoRepo struct {
-	client     *mongo.Client
 	collection *mongo.Collection
 	mu         *nmutex.NamedMutex
 }
 
-func NewMongoRepo(connectionString, dbName, collectionName string) (NotesRepo, error) {
-	client, err := mongo.Connect(
-		context.Background(),
-		options.Client().ApplyURI(connectionString),
-	)
-
+func NewMongoRepo(mongoURI, dbName, collectionName string) (NotesRepo, error) {
+	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(mongoURI))
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "mongo.Connect")
 	}
 
 	return &MongoRepo{
-		client:     client,
 		collection: client.Database(dbName).Collection(collectionName),
 		mu:         nmutex.New(),
 	}, nil
@@ -119,9 +113,12 @@ func (r *MongoRepo) Del(chatID, serviceName string) error {
 	unlocker := r.mu.Lock(chatID)
 	defer unlocker()
 
-	_, err := r.collection.UpdateOne(context.Background(), filter, update)
+	updateResult, err := r.collection.UpdateOne(context.Background(), filter, update)
 	if err != nil {
 		return errors.Wrap(err, "r.collection.UpdateOne")
+	}
+	if updateResult.ModifiedCount < 1 {
+		return ErrNotFound
 	}
 
 	return nil
