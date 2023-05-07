@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"net/http"
 
 	"tgbot/internal/handler"
 	"tgbot/internal/repo"
@@ -13,7 +12,6 @@ import (
 )
 
 const (
-	WebhookURL      = "https://70b7-176-59-164-45.ngrok-free.app"
 	NumberOfWorkers = 4
 	MongoURI        = "mongodb://mongodb:27017"
 	DatabaseName    = "tgbot"
@@ -30,12 +28,14 @@ func main() {
 	}
 	logger := zapLogger.Sugar()
 	defer logger.Sync()
+	logger.Info("zapSugaredLogger initialized")
 
-	// mongoDB
+	// MongoDB
 	repo, err := repo.NewMongoRepo(MongoURI, DatabaseName, CollectionName)
 	if err != nil {
 		logger.Panic(err)
 	}
+	logger.Info("MongoDB connection established")
 
 	// tgbot
 	bot, err := tgbotapi.NewBotAPI(BotToken)
@@ -43,15 +43,15 @@ func main() {
 		logger.Panic(err)
 	}
 
-	_, err = bot.SetWebhook(tgbotapi.NewWebhook(WebhookURL))
+	log.Println(bot.RemoveWebhook())
+	updates, err := bot.GetUpdatesChan(tgbotapi.NewUpdate(0))
 	if err != nil {
 		logger.Panic(err)
 	}
-
-	updates := bot.ListenForWebhook("/")
-	logger.Infof(`Bot "%v" started`, bot.Self.UserName)
+	logger.Infof(`Got UpdatesChannel from bot "%v"`, bot.Self.UserName)
 
 	botHandler := handler.NewBotHandler(logger, bot, repo)
+
 	for i := 0; i < NumberOfWorkers; i++ {
 		go func(workerNum int) {
 			logger.Infof(`Worker %v started`, workerNum)
@@ -59,6 +59,6 @@ func main() {
 		}(i)
 	}
 
-	logger.Info("Listening :8080")
-	logger.Fatal(http.ListenAndServe(":8080", nil))
+	// Sleep forever
+	<-make(chan int)
 }
