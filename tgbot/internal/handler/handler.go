@@ -12,39 +12,40 @@ import (
 )
 
 const (
-	InternalErrorMessage = "Произошла внутренняя ошибка. Пожалуйста, попробуйте позже"
+	internalErrorMessage = "Произошла внутренняя ошибка. Пожалуйста, попробуйте позже"
 
-	HelpMessage = "Доступные команды:\n" +
+	helpMessage = "Доступные команды:\n" +
 		"/set Имя сервиса Логин Пароль — сохранить логин-пароль для сервиса" +
 		"(предыдущие данные для этого сервиса будут удалены)\n" +
 		"/get Имя сервиса — получить логин-пароль к сервису\n" +
 		"/del Имя сервиса — отвязать логин-пароль от сервиса\n" +
 		"Пример: `/set Мой сервис my_login my_password`\n" +
 		"Примечание: Имя сервиса может содержать пробелы, Логин и Пароль — нет"
+
+	// AvailableLetters can be used in servicename, login and password.
+	availableLetters = " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+		"абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ" +
+		"!#$%&()*+,-./0123456789:;<=>?@[]^_{|}~;"
+
+	messageDeleteDelay = 60 * time.Second
 )
 
 type Handler struct {
-	Logger          *zap.SugaredLogger
-	Bot             *tgbotapi.BotAPI
-	Repo            repo.NotesRepo
-	CommandHandlers map[string]func(msg *tgbotapi.Message) (string, error)
+	logger          *zap.SugaredLogger
+	bot             *tgbotapi.BotAPI
+	repo            repo.NotesRepo
+	commandHandlers map[string]func(msg *tgbotapi.Message) (string, error)
 }
 
 func NewBotHandler(logger *zap.SugaredLogger, bot *tgbotapi.BotAPI,
 	repo repo.NotesRepo) BotHandler {
 
-	h := &Handler{
-		Logger: logger,
-		Bot:    bot,
-		Repo:   repo,
-	}
-
-	h.CommandHandlers = map[string]func(msg *tgbotapi.Message) (string, error){
+	h := &Handler{logger: logger, bot: bot, repo: repo}
+	h.commandHandlers = map[string]func(msg *tgbotapi.Message) (string, error){
 		"set": h.Set,
 		"get": h.Get,
 		"del": h.Del,
 	}
-
 	return h
 }
 
@@ -57,149 +58,115 @@ func (h *Handler) HandleUpdates(updates <-chan tgbotapi.Update) {
 			continue
 		}
 
-		h.Logger.Debugf(`chat %v: Requested "%v"`, msg.Chat.ID, msg.Command())
+		reply := tgbotapi.NewMessage(msg.Chat.ID, "")
+		reply.ReplyToMessageID = msg.MessageID
 
-		handlerFunc, found := h.CommandHandlers[msg.Command()]
+		handlerFunc, found := h.commandHandlers[msg.Command()]
+
 		if !found {
-			reply := tgbotapi.NewMessage(msg.Chat.ID, HelpMessage)
-			reply.ReplyToMessageID = msg.MessageID
+			// Invalid command (commandHandler not found)
+			reply.Text = helpMessage
 
-			_, err := h.Bot.Send(reply)
+			err := h.send(reply)
 			if err != nil {
-				h.Logger.Error(errors.Wrap(err, "h.Bot.Send"))
+				h.logger.Error(errors.Wrap(err, "h.send"))
 			}
 
 			continue
 		}
 
+		symbol, found := findSymbolFromSetInString(msg.Text[1:], availableLetters)
+
+		if found {
+			// Valid command with invalid symbol(s) in arguments
+			reply.Text = fmt.Sprintf(
+				"Невозможно обработать запрос, сообщение содержит недопустимый символ: %v", symbol)
+
+			err := h.send(reply)
+			if err != nil {
+				h.logger.Error(errors.Wrap(err, "h.send"))
+			}
+			continue
+		}
+
+		h.logger.Debugf(`chat %v: Requested "%v"`, msg.Chat.ID, msg.Command())
+
 		// run command handler
 		go func(msg *tgbotapi.Message) {
 			start := time.Now()
-
 			text, err := handlerFunc(msg)
 
 			if err == nil {
-				h.Logger.Debugf(`chat %v: Command "%v" served in %v ms`,
+				h.logger.Debugf(`chat %v: Command "%v" served in %v ms`,
 					msg.Chat.ID, msg.Command(), time.Since(start).Milliseconds())
 			} else {
-				text = InternalErrorMessage
-				h.Logger.Errorf(`chat %v: Error serving command "%v": %v`,
+				text = internalErrorMessage
+				h.logger.Errorf(`chat %v: Error serving command "%v": %v`,
 					msg.Chat.ID, msg.Command(), err)
 			}
 
-			reply := tgbotapi.NewMessage(msg.Chat.ID, text)
-			reply.ReplyToMessageID = msg.MessageID
+			reply.Text = text
 			reply.ParseMode = "MarkDown"
 
-			_, err = h.Bot.Send(reply)
+			err = h.sendConfident(reply)
 			if err != nil {
-				h.Logger.Error(errors.Wrap(err, "h.Bot.Send"))
+				h.logger.Error(errors.Wrap(err, "h.sendConfident"))
 			}
 		}(msg)
 	}
 }
 
-// Set is multithreading-friendly "/set" command handler.
-func (h *Handler) Set(msg *tgbotapi.Message) (string, error) {
-	input := strings.Split(msg.Text, " ")
-	if len(input) < 4 {
-		text := "Некорректный ввод.\n" +
-			"/set Имя сервиса Логин Пароль — сохранить логин-пароль для сервиса" +
-			"(предыдущие данные для этого сервиса будут удалены)\n" +
-			"Пример: `/set Мой сервис my_login my_password`"
-		return text, nil
-	}
-
-	serviceName := input[1]
-
-	// handle multi-words service name
-	for i := 2; i < len(input)-2; i++ {
-		serviceName += " " + input[i]
-	}
-
-	login := input[len(input)-2]
-	password := input[len(input)-1]
-
-	note := repo.Note{
-		ServiceName: serviceName,
-		Login:       login,
-		Password:    password,
-	}
-
-	err := h.Repo.Set(fmt.Sprint(msg.Chat.ID), note)
+// send sends msg and deletes user's message after messageDeleteDelay.
+func (h *Handler) send(msg tgbotapi.MessageConfig) error {
+	_, err := h.bot.Send(msg)
 	if err != nil {
-		return "", errors.Wrap(err, "h.Repo.Set")
+		return errors.Wrap(err, fmt.Sprintf(`h.bot.Send "%v"`, msg))
 	}
 
-	text := fmt.Sprintf("Сервис: `%v`\n"+
-		"Логин: `%v`\n"+
-		"Пароль: `%v`",
-		note.ServiceName, note.Login, note.Password)
-	return text, nil
+	time.Sleep(messageDeleteDelay)
+
+	delMsg := tgbotapi.NewDeleteMessage(msg.ChatID, msg.ReplyToMessageID)
+
+	_, err = h.bot.Send(delMsg)
+	if err != nil {
+		return errors.Wrap(err, fmt.Sprintf(`h.bot.Send "%v"`, delMsg))
+	}
+
+	return nil
 }
 
-// Get is multithreading-friendly "/get" command handler.
-func (h *Handler) Get(msg *tgbotapi.Message) (string, error) {
-	input := strings.Split(msg.Text, " ")
-	if len(input) < 2 {
-		text := "Некорректный ввод.\n" +
-			"/get Имя сервиса — получить логин-пароль к сервису\n" +
-			"Например, `/get Мой сервис`"
-		return text, nil
-	}
+// sendConfident sends msg and deletes both messages after messageDeleteDelay.
+func (h *Handler) sendConfident(msg tgbotapi.MessageConfig) error {
 
-	serviceName := input[1]
+	// Confident messages not placed into logs
+	// We believe that handlerFuncs provided valid msg
 
-	// handle multi-words service name
-	for i := 2; i < len(input); i++ {
-		serviceName += " " + input[i]
-	}
-
-	note, err := h.Repo.Get(fmt.Sprint(msg.Chat.ID), serviceName)
-
+	msgToUser, err := h.bot.Send(msg)
 	if err != nil {
-		if !errors.Is(err, repo.ErrNotFound) {
-			return "", errors.Wrap(err, "h.Repo.Get")
-		}
-		text := fmt.Sprintf("Сервис с именем `%v` не найден", serviceName)
-		return text, nil
+		return errors.Wrap(err, "h.bot.Send")
 	}
 
-	text := fmt.Sprintf("Сервис: `%v`\n"+
-		"Логин: `%v`\n"+
-		"Пароль: `%v`",
-		note.ServiceName, note.Login, note.Password,
-	)
+	time.Sleep(messageDeleteDelay)
 
-	return text, nil
+	delMsg := tgbotapi.NewDeleteMessage(msg.ChatID, msg.ReplyToMessageID)
+	_, err = h.bot.Send(delMsg)
+	if err != nil {
+		return errors.Wrap(err, "h.bot.Send")
+	}
+
+	_, err = h.bot.Send(tgbotapi.NewDeleteMessage(msg.ChatID, msgToUser.MessageID))
+	if err != nil {
+		return errors.Wrap(err, "h.bot.Send")
+	}
+
+	return nil
 }
 
-// Del is multithreading-friendly "/del" command handler.
-func (h *Handler) Del(msg *tgbotapi.Message) (string, error) {
-	input := strings.Split(msg.Text, " ")
-	if len(input) < 2 {
-		text := "Некорректный ввод.\n" +
-			"/del Имя сервиса — отвязать логин-пароль от сервиса\n" +
-			"Например, `/del Мой сервис`"
-		return text, nil
-	}
-
-	serviceName := input[1]
-
-	// handle multi-words service name
-	for i := 2; i < len(input); i++ {
-		serviceName += " " + input[i]
-	}
-
-	err := h.Repo.Del(fmt.Sprint(msg.Chat.ID), serviceName)
-	text := fmt.Sprintf("Логин-пароль отвязан от сервиса `%v`", serviceName)
-
-	if err != nil {
-		if !errors.Is(err, repo.ErrNotFound) {
-			return "", errors.Wrap(err, "h.Repo.Del")
+func findSymbolFromSetInString(str, set string) (string, bool) {
+	for _, symbol := range str {
+		if !strings.Contains(availableLetters, string(symbol)) {
+			return string(symbol), true
 		}
-		text = fmt.Sprintf("Логин-пароль к сервису `%v` не найден", serviceName)
 	}
-
-	return text, nil
+	return "", false
 }
