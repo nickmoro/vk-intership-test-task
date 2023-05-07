@@ -9,7 +9,7 @@ type BotHandler interface {
 	// You can have many HandleUpdates running simultaneously.
 	HandleUpdates(updates <-chan tgbotapi.Update)
 
-	Set(msg *tgbotapi.Message) (tgbotapi.MessageConfig, error)
-	Get(msg *tgbotapi.Message) (tgbotapi.MessageConfig, error)
-	Del(msg *tgbotapi.Message) (tgbotapi.MessageConfig, error)
+	Set(msg *tgbotapi.Message) (string, error)
+	Get(msg *tgbotapi.Message) (string, error)
+	Del(msg *tgbotapi.Message) (string, error)
 }
