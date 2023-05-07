@@ -15,10 +15,11 @@ const (
 	InternalErrorMessage = "Произошла внутренняя ошибка. Пожалуйста, попробуйте позже"
 
 	HelpMessage = "Доступные команды:\n" +
-		"/set Имя сервиса Логин Пароль — сохранить логин-пароль для сервиса\n" +
+		"/set Имя сервиса Логин Пароль — сохранить логин-пароль для сервиса" +
+		"(предыдущие данные для этого сервиса будут удалены)\n" +
 		"/get Имя сервиса — получить логин-пароль к сервису\n" +
 		"/del Имя сервиса — отвязать логин-пароль от сервиса\n" +
-		"Пример: /set Мой сервис my_login my_password\n" +
+		"Пример: `/set Мой сервис my_login my_password`\n" +
 		"Примечание: Имя сервиса может содержать пробелы, Логин и Пароль — нет"
 )
 
@@ -26,7 +27,7 @@ type Handler struct {
 	Logger          *zap.SugaredLogger
 	Bot             *tgbotapi.BotAPI
 	Repo            repo.NotesRepo
-	CommandHandlers map[string]func(msg *tgbotapi.Message) (tgbotapi.MessageConfig, error)
+	CommandHandlers map[string]func(msg *tgbotapi.Message) (string, error)
 }
 
 func NewBotHandler(logger *zap.SugaredLogger, bot *tgbotapi.BotAPI,
@@ -38,7 +39,7 @@ func NewBotHandler(logger *zap.SugaredLogger, bot *tgbotapi.BotAPI,
 		Repo:   repo,
 	}
 
-	h.CommandHandlers = map[string]func(msg *tgbotapi.Message) (tgbotapi.MessageConfig, error){
+	h.CommandHandlers = map[string]func(msg *tgbotapi.Message) (string, error){
 		"set": h.Set,
 		"get": h.Get,
 		"del": h.Del,
@@ -74,18 +75,22 @@ func (h *Handler) HandleUpdates(updates <-chan tgbotapi.Update) {
 		// run command handler
 		go func(msg *tgbotapi.Message) {
 			start := time.Now()
-			reply, err := handlerFunc(msg)
+
+			text, err := handlerFunc(msg)
 
 			if err == nil {
 				h.Logger.Debugf(`chat %v: Command "%v" served in %v ms`,
 					msg.Chat.ID, msg.Command(), time.Since(start).Milliseconds())
 			} else {
-				reply.Text = InternalErrorMessage
+				text = InternalErrorMessage
 				h.Logger.Errorf(`chat %v: Error serving command "%v": %v`,
 					msg.Chat.ID, msg.Command(), err)
 			}
 
+			reply := tgbotapi.NewMessage(msg.Chat.ID, text)
 			reply.ReplyToMessageID = msg.MessageID
+			reply.ParseMode = "MarkDown"
+
 			_, err = h.Bot.Send(reply)
 			if err != nil {
 				h.Logger.Error(errors.Wrap(err, "h.Bot.Send"))
@@ -95,13 +100,14 @@ func (h *Handler) HandleUpdates(updates <-chan tgbotapi.Update) {
 }
 
 // Set is multithreading-friendly "/set" command handler.
-func (h *Handler) Set(msg *tgbotapi.Message) (tgbotapi.MessageConfig, error) {
+func (h *Handler) Set(msg *tgbotapi.Message) (string, error) {
 	input := strings.Split(msg.Text, " ")
 	if len(input) < 4 {
 		text := "Некорректный ввод.\n" +
-			"/set Имя сервиса Логин Пароль — сохранить логин-пароль для сервиса\n" +
-			"Пример: /set Мой сервис my_login my_password"
-		return tgbotapi.NewMessage(msg.Chat.ID, text), nil
+			"/set Имя сервиса Логин Пароль — сохранить логин-пароль для сервиса" +
+			"(предыдущие данные для этого сервиса будут удалены)\n" +
+			"Пример: `/set Мой сервис my_login my_password`"
+		return text, nil
 	}
 
 	serviceName := input[1]
@@ -122,22 +128,24 @@ func (h *Handler) Set(msg *tgbotapi.Message) (tgbotapi.MessageConfig, error) {
 
 	err := h.Repo.Set(fmt.Sprint(msg.Chat.ID), note)
 	if err != nil {
-		return tgbotapi.MessageConfig{}, errors.Wrap(err, "h.Repo.Set")
+		return "", errors.Wrap(err, "h.Repo.Set")
 	}
 
-	text := fmt.Sprintf(`Сервис "%v":`+"\nЛогин: %v\nПароль: %v",
+	text := fmt.Sprintf("Сервис: `%v`\n"+
+		"Логин: `%v`\n"+
+		"Пароль: `%v`",
 		note.ServiceName, note.Login, note.Password)
-	return tgbotapi.NewMessage(msg.Chat.ID, text), nil
+	return text, nil
 }
 
 // Get is multithreading-friendly "/get" command handler.
-func (h *Handler) Get(msg *tgbotapi.Message) (tgbotapi.MessageConfig, error) {
+func (h *Handler) Get(msg *tgbotapi.Message) (string, error) {
 	input := strings.Split(msg.Text, " ")
 	if len(input) < 2 {
 		text := "Некорректный ввод.\n" +
 			"/get Имя сервиса — получить логин-пароль к сервису\n" +
-			"Например, /get Мой сервис"
-		return tgbotapi.NewMessage(msg.Chat.ID, text), nil
+			"Например, `/get Мой сервис`"
+		return text, nil
 	}
 
 	serviceName := input[1]
@@ -148,23 +156,32 @@ func (h *Handler) Get(msg *tgbotapi.Message) (tgbotapi.MessageConfig, error) {
 	}
 
 	note, err := h.Repo.Get(fmt.Sprint(msg.Chat.ID), serviceName)
+
 	if err != nil {
-		return tgbotapi.MessageConfig{}, errors.Wrap(err, "h.Repo.Get")
+		if !errors.Is(err, repo.ErrNotFound) {
+			return "", errors.Wrap(err, "h.Repo.Get")
+		}
+		text := fmt.Sprintf("Сервис с именем `%v` не найден", serviceName)
+		return text, nil
 	}
 
-	text := fmt.Sprintf(`Сервис "%v":`+"\nЛогин: %v\nПароль: %v",
-		note.ServiceName, note.Login, note.Password)
-	return tgbotapi.NewMessage(msg.Chat.ID, text), nil
+	text := fmt.Sprintf("Сервис: `%v`\n"+
+		"Логин: `%v`\n"+
+		"Пароль: `%v`",
+		note.ServiceName, note.Login, note.Password,
+	)
+
+	return text, nil
 }
 
 // Del is multithreading-friendly "/del" command handler.
-func (h *Handler) Del(msg *tgbotapi.Message) (tgbotapi.MessageConfig, error) {
+func (h *Handler) Del(msg *tgbotapi.Message) (string, error) {
 	input := strings.Split(msg.Text, " ")
 	if len(input) < 2 {
 		text := "Некорректный ввод.\n" +
 			"/del Имя сервиса — отвязать логин-пароль от сервиса\n" +
-			"Например, /del Мой сервис"
-		return tgbotapi.NewMessage(msg.Chat.ID, text), nil
+			"Например, `/del Мой сервис`"
+		return text, nil
 	}
 
 	serviceName := input[1]
@@ -175,10 +192,14 @@ func (h *Handler) Del(msg *tgbotapi.Message) (tgbotapi.MessageConfig, error) {
 	}
 
 	err := h.Repo.Del(fmt.Sprint(msg.Chat.ID), serviceName)
+	text := fmt.Sprintf("Логин-пароль отвязан от сервиса `%v`", serviceName)
+
 	if err != nil {
-		return tgbotapi.MessageConfig{}, errors.Wrap(err, "h.Repo.Get")
+		if !errors.Is(err, repo.ErrNotFound) {
+			return "", errors.Wrap(err, "h.Repo.Del")
+		}
+		text = fmt.Sprintf("Логин-пароль к сервису `%v` не найден", serviceName)
 	}
 
-	text := fmt.Sprintf(`Логин-пароль отвязан от сервиса "%v"`, serviceName)
-	return tgbotapi.NewMessage(msg.Chat.ID, text), nil
+	return text, nil
 }
