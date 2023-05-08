@@ -64,28 +64,29 @@ func (h *Handler) HandleUpdates(updates <-chan tgbotapi.Update) {
 		handlerFunc, found := h.commandHandlers[msg.Command()]
 
 		if !found {
-			// Invalid command (commandHandler not found)
-			reply.Text = helpMessage
-
-			err := h.send(reply)
-			if err != nil {
-				h.logger.Error(errors.Wrap(err, "h.send"))
-			}
-
+			// Run invalid command handler
+			go func() {
+				reply.Text = helpMessage
+				err := h.send(reply)
+				if err != nil {
+					h.logger.Error(errors.Wrap(err, "h.send"))
+				}
+			}()
 			continue
 		}
 
 		symbol, found := findSymbolFromSetInString(msg.Text[1:], availableLetters)
 
 		if found {
-			// Valid command with invalid symbol(s) in arguments
-			reply.Text = fmt.Sprintf(
-				"Невозможно обработать запрос, сообщение содержит недопустимый символ: %v", symbol)
-
-			err := h.send(reply)
-			if err != nil {
-				h.logger.Error(errors.Wrap(err, "h.send"))
-			}
+			// Run invalid symbol in arguments handler
+			go func() {
+				reply.Text = "Невозможно обработать запрос, " +
+					`сообщение содержит недопустимый символ: "` + symbol + `"`
+				err := h.send(reply)
+				if err != nil {
+					h.logger.Error(errors.Wrap(err, "h.send"))
+				}
+			}()
 			continue
 		}
 
