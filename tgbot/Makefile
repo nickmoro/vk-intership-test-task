@@ -16,3 +16,6 @@ logs:
 stop:
 	sudo docker container stop tgbot-app-1
 	sudo docker container stop tgbot-mongodb-1
+
+linter:
+	golangci-lint run ./...

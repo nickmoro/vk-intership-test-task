@@ -165,7 +165,7 @@ func (h *Handler) sendConfident(msg tgbotapi.MessageConfig) error {
 
 func findSymbolFromSetInString(str, set string) (string, bool) {
 	for _, symbol := range str {
-		if !strings.Contains(availableLetters, string(symbol)) {
+		if !strings.Contains(set, string(symbol)) {
 			return string(symbol), true
 		}
 	}

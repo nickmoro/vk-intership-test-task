@@ -3,7 +3,6 @@ package repo
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/pkg/errors"
 	"github.com/yudai/nmutex"
@@ -88,7 +87,6 @@ func (r *MongoRepo) Get(chatID, serviceName string) (Note, error) {
 		return Note{}, errors.Wrap(err, "r.collection.FindOne")
 	}
 
-	log.Println("Found workspace =", workspace)
 	for _, note := range workspace.Notes {
 		if note.ServiceName == serviceName {
 			return note, nil

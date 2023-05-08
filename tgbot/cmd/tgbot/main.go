@@ -28,7 +28,12 @@ func main() {
 		log.Fatal(err)
 	}
 	logger := zapLogger.Sugar()
-	defer logger.Sync()
+	defer func() {
+		syncErr := logger.Sync()
+		if syncErr != nil {
+			log.Fatal(syncErr)
+		}
+	}()
 	logger.Info("zapSugaredLogger initialized")
 
 	// MongoDB
