@@ -20,7 +20,8 @@ const (
 
 func main() {
 	// zapSugaredLogger
-	config := zap.NewDevelopmentConfig()
+	// config := zap.NewDevelopmentConfig()
+	config := zap.NewProductionConfig()
 	config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 	zapLogger, err := config.Build()
 	if err != nil {
