@@ -12,22 +12,27 @@ import (
 )
 
 const (
+	// messageDeleteDelay should be in seconds.
+	messageDeleteDelay = 60 * time.Second
+
 	internalErrorMessage = "Произошла внутренняя ошибка. Пожалуйста, попробуйте позже"
 
+	// AvailableLetters can be used in servicename, login and password.
+	availableLetters = " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+		"абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ" +
+		"!#$%&()*+,-./0123456789:;<=>?@[]^_{|}~;"
+)
+
+var (
 	helpMessage = "Доступные команды:\n" +
 		"/set Имя сервиса Логин Пароль — сохранить логин-пароль для сервиса" +
 		"(предыдущие данные для этого сервиса будут удалены)\n" +
 		"/get Имя сервиса — получить логин-пароль к сервису\n" +
 		"/del Имя сервиса — отвязать логин-пароль от сервиса\n" +
 		"Пример: `/set Мой сервис my_login my_password`\n" +
-		"Примечание: Имя сервиса может содержать пробелы, Логин и Пароль — нет"
-
-	// AvailableLetters can be used in servicename, login and password.
-	availableLetters = " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" +
-		"абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ" +
-		"!#$%&()*+,-./0123456789:;<=>?@[]^_{|}~;"
-
-	messageDeleteDelay = 60 * time.Second
+		"Примечание: Имя сервиса может содержать пробелы, Логин и Пароль — нет\n" +
+		"Сообщения, содержащие конфиденциальную информацию, " +
+		"автоматически удалются по истечении " + messageDeleteDelay.String() + " секунд"
 )
 
 type Handler struct {
